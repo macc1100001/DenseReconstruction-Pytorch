@@ -423,7 +423,7 @@ def overlapping_visible_view_indexes_per_point(visible_view_indexes_per_point, v
 
 def read_pose_data(prefix_seq):
     stream = open(str(prefix_seq / "motion.yaml"), 'r')
-    doc = yaml.load(stream)
+    doc = yaml.load(stream, Loader=yaml.Loader)
     keys, values = doc.items()
     poses = values[1]
     return poses
@@ -1130,7 +1130,7 @@ def feature_matching_single(color_1, color_2, feature_map_1, feature_map_2, kps_
         detected_keypoints_2 = []
         for index in valid_detected_1d_locations_2:
             detected_keypoints_2.append(
-                cv2.KeyPoint(x=float(np.floor(index % width)), y=float(np.floor(index / width)), _size=1.0))
+                cv2.KeyPoint(x=float(np.floor(index % width)), y=float(np.floor(index / width)),  size=1.0))
 
         matches = []
         for i, (query_index, response) in enumerate(

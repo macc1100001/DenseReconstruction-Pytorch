@@ -177,7 +177,7 @@ if __name__ == '__main__':
 
     validation_step = 0
 
-    sift = cv2.xfeatures2d.SIFT_create(nfeatures=1000, nOctaveLayers=8,
+    sift = cv2.SIFT_create(nfeatures=1000, nOctaveLayers=8,
                                        contrastThreshold=0.00005,
                                        edgeThreshold=100, sigma=1.1)
     for cur_epoch in range(epoch, args.num_epoch + 1):
