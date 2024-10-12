@@ -95,6 +95,30 @@ class RelativeResponseLoss(torch.nn.Module):
 
         return rr_loss
 
+class ContrastiveLoss(torch.nn.Module):
+    def __init__(self, eps=1.0e-10, margin=1.0):
+        super(ContrastiveLoss, self).__init__()
+        self.eps = eps
+        slef.margin = margin
+
+    def forward(self, x):
+        source_feature_map, source_feature_1d_locations, target_feature_map, target_feature_1d_locations, matches_idx = x
+        batch_size, channel, height, width = source_feature_map.shape
+        # margin radius
+        m = self.margin
+
+        _, sampling_size, _ = source_feature_1d_locations.shape
+        matches_idx = matches_idx.view(batch_size, sampling_size,1,1).expand(-1,-1,channel,-1).to('cuda:0')
+
+        source_feature_1d_locations = source_feature_1d_locations.view(batch_size,1,sampling_size).expand(-1,expand,-1)
+
+        target_feature_1d_locations = target_feature_1d_locations.view(batch_size,1,sampling_size).expand(-1,expand,-1)
+
+        sampled_source_feature_vectors = torch.gather(source_feature_map.view(batch_size,channel,height * width),2,source_feature_1d_locations.long())
+        sampled_source_feature_vectors = sampled_source_feature_vectors.view(batch_size,channel,sampling_size,1,1).permute(0,2,1,3,4).view(batch_size,sampling_size,channel,1,1)
+
+
+
 
 class MatchingAccuracyMetric(torch.nn.Module):
     def __init__(self, threshold):
