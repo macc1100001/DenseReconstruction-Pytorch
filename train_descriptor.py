@@ -152,6 +152,7 @@ if __name__ == '__main__':
     response_map_generator = models.FeatureResponseGenerator(scale=args.matching_scale,
                                                              threshold=args.matching_threshold)
     relative_response_loss = losses.RelativeResponseLoss()
+    contrastive_loss = losses.ContrastiveLoss(margin=0.2)
 
     # Validation metric
     matching_accuracy_metric = losses.MatchingAccuracyMetric(threshold=5)
@@ -198,7 +199,9 @@ if __name__ == '__main__':
                 gt_heatmaps_1,
                 gt_heatmaps_2,
                 boundaries,
-                folders, names
+                folders, names, matches_idx,
+                feature_1D_locations_2_non_matches,
+                feature_2D_locations_2_non_matches
         ) in \
                 enumerate(train_loader):
             # Update learning rate
@@ -212,6 +215,9 @@ if __name__ == '__main__':
                          feature_1D_locations_1.cuda(), feature_1D_locations_2.cuda(), \
                          feature_2D_locations_1.cuda(), feature_2D_locations_2.cuda(), \
                          boundaries.cuda()
+
+            feature_1D_locations_2_non_matches = feature_1D_locations_2_non_matches.cuda()
+            feature_2D_locations_2_non_matches = feature_2D_locations_2_non_matches.cuda()
 
             feature_maps_1 = feature_descriptor_model(colors_1)
             feature_maps_2 = feature_descriptor_model(colors_2)
@@ -228,23 +234,32 @@ if __name__ == '__main__':
 
             rr_loss = args.rr_weight * (0.5 * rr_loss_1 + 0.5 * rr_loss_2)
 
+            # Contrastive Loss
+            c_loss = contrastive_loss([feature_maps_1, feature_1D_locations_1, feature_maps_2, feature_1D_locations_2_non_matches, matches_idx])
+
+            total_loss = rr_loss + c_loss
+
             # Handle nan cases
-            if math.isnan(rr_loss.item()) or math.isinf(rr_loss.item()):
+            if math.isnan(total_loss.item()) or math.isinf(total_loss.item()):
                 optimizer.zero_grad()
-                rr_loss.backward()
+                total_loss.backward()
                 optimizer.zero_grad()
                 tq.update(args.batch_size)
                 continue
             else:
                 optimizer.zero_grad()
-                rr_loss.backward()
+                total_loss.backward()
                 torch.nn.utils.clip_grad_norm_(feature_descriptor_model.parameters(), 10.0)
                 optimizer.step()
 
                 if batch == 0:
+                    mean_total_loss = np.mean(total_loss.item())
                     mean_rr_loss = np.mean(rr_loss.item())
+                    mean_c_loss = np.mean(c_loss.item())
                 else:
+                    mean_total_loss = (mean_total_loss * batch + total_loss.item()) / (batch + 1.0)
                     mean_rr_loss = (mean_rr_loss * batch + rr_loss.item()) / (batch + 1.0)
+                    mean_c_loss = (mean_c_loss * batch + c_loss.item()) / (batch + 1.0)
 
             # Result display
             if batch % args.display_interval == 0:
@@ -259,9 +274,9 @@ if __name__ == '__main__':
 
             step += 1
             tq.update(colors_1.shape[0])
-            tq.set_postfix(loss='average: {:.5f}, current: {:.5f}'.format(mean_rr_loss, rr_loss.item())
+            tq.set_postfix(loss='average: {:.5f}, current: {:.5f}'.format(mean_total_loss, total_loss.item())
                            )
-            writer.add_scalars('Train', {'loss': mean_rr_loss}, step)
+            writer.add_scalars('Train', {'total loss': mean_total_loss, 'rr loss': mean_rr_loss, 'c loss': mean_c_loss}, step)
 
         tq.close()
 
@@ -285,7 +300,7 @@ if __name__ == '__main__':
                     gt_heatmaps_1,
                     gt_heatmaps_2,
                     boundaries,
-                    folders, names
+                    folders, names, _,_,_
             ) in enumerate(val_loader):
                 tq.set_description('Validation Epoch {}'.format(cur_epoch))
 

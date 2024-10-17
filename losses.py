@@ -99,24 +99,40 @@ class ContrastiveLoss(torch.nn.Module):
     def __init__(self, eps=1.0e-10, margin=1.0):
         super(ContrastiveLoss, self).__init__()
         self.eps = eps
-        slef.margin = margin
+        self.m = margin
 
     def forward(self, x):
         source_feature_map, source_feature_1d_locations, target_feature_map, target_feature_1d_locations, matches_idx = x
         batch_size, channel, height, width = source_feature_map.shape
-        # margin radius
-        m = self.margin
 
         _, sampling_size, _ = source_feature_1d_locations.shape
         matches_idx = matches_idx.view(batch_size, sampling_size,1,1).expand(-1,-1,channel,-1).to('cuda:0')
 
-        source_feature_1d_locations = source_feature_1d_locations.view(batch_size,1,sampling_size).expand(-1,expand,-1)
+        source_feature_1d_locations = source_feature_1d_locations.view(batch_size,1,sampling_size).expand(-1,channel,-1)
 
-        target_feature_1d_locations = target_feature_1d_locations.view(batch_size,1,sampling_size).expand(-1,expand,-1)
+        target_feature_1d_locations = target_feature_1d_locations.view(batch_size,1,sampling_size).expand(-1,channel,-1)
 
         sampled_source_feature_vectors = torch.gather(source_feature_map.view(batch_size,channel,height * width),2,source_feature_1d_locations.long())
         sampled_source_feature_vectors = sampled_source_feature_vectors.view(batch_size,channel,sampling_size,1,1).permute(0,2,1,3,4).view(batch_size,sampling_size,channel,1,1)
 
+        sampled_target_feature_vectors = torch.gather(target_feature_map.view(batch_size, channel, height * width), 2, target_feature_1d_locations.long())
+        sampled_target_feature_vectors = sampled_target_feature_vectors.view(batch_size, channel, sampling_size,1,1).permute(0,2,1,3,4).view(batch_size, sampling_size, channel,1,1)
+
+        sampled_source_feature_vectors = sampled_source_feature_vectors / torch.linalg.vector_norm(sampled_source_feature_vectors, dim=(1,2,3,4))
+        sampled_target_feature_vectors = sampled_target_feature_vectors / torch.linalg.vector_norm(sampled_target_feature_vectors, dim=(1,2,3,4))
+
+        # contrastive loss implementation from "https://www.sciencedirect.com/topics/computer-science/contrastive-loss"
+        #dist = torch.nn.CosineSimilarity(dim=2, eps=self.eps)
+        #contrastive_dist = dist(sampled_source_feature_vectors, sampled_target_feature_vectors)
+        contrastive_dist = torch.norm(sampled_target_feature_vectors - sampled_source_feature_vectors, dim=2, keepdim=False)
+        pos = (1.0-matches_idx) * torch.pow(contrastive_dist, 2)
+        neg = matches_idx * torch.pow(torch.clamp(self.m - contrastive_dist, min=0.0),2)
+        c_loss = torch.mean(pos+neg)
+
+        # contrastive loss implementation form "https://openaccess.thecvf.com/content/CVPR2021/papers/Wang_Understanding_the_Behaviour_of_Contrastive_Loss_CVPR_2021_paper.pdf"
+        #c_loss = torch.sum( - torch.log(torch.exp(sampled_source_feature_vectors / self.m) / (torch.sum(torch.exp(sampled_target_feature_vectors / self.m) + torch.exp(sampled_source_feature_vectors / self.m)))))
+
+        return c_loss
 
 
 
@@ -137,6 +153,7 @@ class MatchingAccuracyMetric(torch.nn.Module):
             [torch.fmod(detected_target_1d_locations, width),
              torch.floor(detected_target_1d_locations / width)],
             dim=2).view(batch_size, sampling_size, 2).float()
+
 
         distance = torch.norm(detected_target_2d_locations - source_feature_2d_locations,
                               dim=2, keepdim=False)

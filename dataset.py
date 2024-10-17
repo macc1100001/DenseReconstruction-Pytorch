@@ -830,10 +830,31 @@ class DescriptorDataset(Dataset):
             source_feature_2D_locations = sampled_feature_matches[:, :2]
             target_feature_2D_locations = sampled_feature_matches[:, 2:]
 
+            # non-matches
+            target_feature_2D_locations_non_matches = np.zeros((self.sampling_size, 2))
+
+            while True:
+                target_feature_2D_locations_non_matches = np.asarray(np.random.choice(np.arange(height, width), size=self.sampling_size*2), dtype=np.float32).reshape((self.sampling_size,2))
+
+                euc_dist_target = np.sqrt(np.sum((target_feature_2D_locations - target_feature_2D_locations_non_matches)**2, axis=1))
+
+                if ~np.any(euc_dist_target < 50.0):
+                    break
+
+
+            matches_idx = np.zeros((self.sampling_size))
+            matches_idx[:self.sampling_size//2] = 1.0
+
+            target_feature_2D_locations_non_matches[self.sampling_size//2:, :] = target_feature_2D_locations[self.sampling_size//2:, :]
+
+
             source_feature_1D_locations = np.zeros(
                 (sampled_feature_matches.shape[0], 1), dtype=np.int32)
             target_feature_1D_locations = np.zeros(
                 (sampled_feature_matches.shape[0], 1), dtype=np.int32)
+
+            target_feature_1D_locations_non_matches = np.zeros(
+                (sampled_feature_matches.shape[0],1),dtype=np.int32)
 
             clipped_source_feature_2D_locations = source_feature_2D_locations
             clipped_source_feature_2D_locations[:, 0] = np.clip(clipped_source_feature_2D_locations[:, 0], a_min=0,
@@ -847,10 +868,19 @@ class DescriptorDataset(Dataset):
             clipped_target_feature_2D_locations[:, 1] = np.clip(clipped_target_feature_2D_locations[:, 1], a_min=0,
                                                                 a_max=height - 1)
 
+            clipped_target_feature_2D_locations_non_matches = target_feature_2D_locations_non_matches
+            clipped_target_feature_2D_locations_non_matches[:,0] = np.clip(clipped_target_feature_2D_locations_non_matches[:,0], a_min=0,a_max=width-1)
+            clipped_target_feature_2D_locations_non_matches[:,1] = np.clip(clipped_target_feature_2D_locations_non_matches[:,1],a_min=0,a_max=height-1)
+
             source_feature_1D_locations[:, 0] = np.round(clipped_source_feature_2D_locations[:, 0]) + \
                                                 np.round(clipped_source_feature_2D_locations[:, 1]) * width
             target_feature_1D_locations[:, 0] = np.round(clipped_target_feature_2D_locations[:, 0]) + \
                                                 np.round(clipped_target_feature_2D_locations[:, 1]) * width
+
+
+
+            target_feature_1D_locations_non_matches[:,0] = np.round(clipped_target_feature_2D_locations_non_matches[:,0]) + \
+                                                np.round(clipped_target_feature_2D_locations_non_matches[:,1]) * width
 
             # Normalize
             training_color_img_1 = self.normalize(image=training_color_img_1)['image']
@@ -864,7 +894,9 @@ class DescriptorDataset(Dataset):
                     torch.from_numpy(training_heatmaps_1),
                     torch.from_numpy(training_heatmaps_2),
                     img_to_tensor(training_mask_boundary),
-                    folder_str, str(img_file_name)]
+                    folder_str, str(img_file_name), matches_idx,
+                    target_feature_1D_locations_non_matches,
+                    target_feature_2D_locations_non_matches]
         elif self.phase == "Loading":
             img_file_name = self.image_file_names[idx]
             # Retrieve the folder path
